@@ -6,14 +6,16 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 FILE_CSV_ADULTS = "adults.csv"
 FILE_CSV_DDOS = "ddos_csv_100000.csv" 
-FILE_CSV_BANKING = "banking.csv"
 FILE_CSV_HEART = "heart.csv"
+FILE_CSV_CMC = "cmc.csv"
+FILE_CSV_MGM = "mgm.csv"
+FILE_CSV_CAHOUSING = "cahousing.csv"
 
 def get_file():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
     # Build the absolute path of the file
-    file_path = os.path.join(script_dir, '..', 'data', FILE_CSV_ADULTS)
+    file_path = os.path.join(script_dir, '..', 'data', FILE_CSV_CAHOUSING)
     print(f"Caminho do arquivo: {file_path}")
     
     # Check if the files exists

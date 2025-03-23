@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 
 #Remove Data
-data/
+# data/
 
 # C extensions
 *.so

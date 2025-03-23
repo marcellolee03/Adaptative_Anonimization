@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import os
 from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier, AdaBoostClassifier
 from sklearn.feature_selection import (SelectFromModel, SelectKBest, chi2,
                                        f_classif, mutual_info_classif)
@@ -8,6 +9,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.preprocessing import MinMaxScaler
 
 from file_utils import get_file
 from ml import cross_validate_k_fold
@@ -16,17 +18,32 @@ from ml import cross_validate_k_fold
 # Function that select the technique of feature selection
 def feature_selection(X, y, method, k=None):
     if method == 'chi2':
-        selector = SelectKBest(chi2, k= k)
+        # For chi2, we need to ensure all values are non-negative
+        # First convert to float64 to avoid type issues
+        X = X.astype(np.float64)
+        
+        # Apply MinMaxScaler to ensure all values are non-negative
+        scaler = MinMaxScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        # Now apply chi2
+        selector = SelectKBest(chi2, k=k)
+        X_new = selector.fit_transform(X_scaled, y)
+        selected_features_idx = selector.get_support(indices=True)
+        return X_new, selected_features_idx
     elif method == 'extra_trees':
+        # Convert to float64 to avoid type issues
+        X = X.astype(np.float64)
+        
         model = ExtraTreesClassifier(n_estimators=100)
         model.fit(X, y)
         selector = SelectFromModel(model, prefit=True)
+        X_new = selector.transform(X)
+        selected_features_idx = selector.get_support(indices=True)
+        return X_new, selected_features_idx
     else:
         raise ValueError(f"Método de seleção de características não suportado: {method}")
 
-    X_new = selector.fit_transform(X,y)
-    selected_features_idx =  selector.get_support(indices=True)
-    return X_new, selected_features_idx
 
 # Function to  get the results
 def get_result(model, X, y, model_name, n_clusters, feature_method, k):
@@ -129,7 +146,14 @@ def Chi2(X, y):
         all_best_results.append(best_results)
 
     final_best_results_df = pd.concat(all_best_results, ignore_index=True)
-    final_best_results_df.to_csv('results/best_results_chi2.csv', index=False)
+    
+    # Ensure results directory exists
+    os.makedirs('results', exist_ok=True)
+    
+    # Save results with absolute path for clarity
+    absolute_path = os.path.join(os.getcwd(), 'results', 'best_results_chi2.csv')
+    final_best_results_df.to_csv(absolute_path, index=False)
+    print(f"Resultados Chi2 salvos em: {absolute_path}")
     print(final_best_results_df.head())
 
 
@@ -142,7 +166,14 @@ def ExtraTree(X, y):
         all_best_results.append(best_results)
 
     final_best_results_df = pd.concat(all_best_results, ignore_index=True)
-    final_best_results_df.to_csv('results/best_results_extra_trees.csv', index=False)
+    
+    # Ensure results directory exists
+    os.makedirs('results', exist_ok=True)
+    
+    # Save results with absolute path for clarity
+    absolute_path = os.path.join(os.getcwd(), 'results', 'best_results_extra_trees.csv')
+    final_best_results_df.to_csv(absolute_path, index=False)
+    print(f"Resultados ExtraTree salvos em: {absolute_path}")
 
 
 def main():
@@ -154,9 +185,10 @@ def main():
     dataset.head(5)
     print(f"Total de colunas no dataset: {len(dataset.columns)}")
 
-    # Extract feature and label
-    y = np.array(dataset['Label'])
-    del dataset['Label']
+    # Extract feature and label to ddos, income to adults, HeartDisease to heart
+    # method to cmc, severity to mgm, ocean_proximity to cahousing
+    y = np.array(dataset['ocean_proximity'])
+    del dataset['ocean_proximity']
     X = np.array(dataset)
 
     # Execute somente Chi2 e ExtraTree

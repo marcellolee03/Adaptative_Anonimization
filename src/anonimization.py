@@ -8,25 +8,28 @@ import time
 
 def anonimization(data, threshold=0.95, add_noise=True):
     """
-    Anonimização de dados usando PCA orientada a eficiência com amostragem diferencial
+    Data anonymization using efficiency-oriented PCA with differential sampling
     
     Args:
-        data: Dados a serem anonimizados
-        threshold: Limiar de variância explicada para selecionar componentes (padrão: 0.95)
-        add_noise: Se deve adicionar ruído diferencial (padrão: True)
+        data: Data to be anonymized
+        threshold: Variance explained threshold for component selection (default: 0.95)
+        add_noise: Whether to add differential noise (default: True)
     
     Returns:
-        Dados anonimizados
+        Anonymized data
     """
     start_time = time.time()
     
-    # Tratamento para datasets pequenos ou com poucas features
+    # Convert data to float64 to avoid type casting issues
+    data = data.astype(np.float64)
+    
+    # Handle small datasets or datasets with few features
     n_samples, n_features = data.shape
     min_dim = min(n_samples, n_features)
     
     if min_dim <= 2:
-        print(f"Dataset muito pequeno (shape={data.shape}), pulando PCA e aplicando apenas ruído")
-        # Se dataset muito pequeno, aplicar apenas ruído e rotação simples
+        print(f"Dataset too small (shape={data.shape}), skipping PCA and applying only noise")
+        # If dataset is very small, apply only noise and simple rotation
         data_noisy = data.copy()
         if add_noise:
             noise_scale = np.std(data, axis=0) * 0.01
@@ -34,81 +37,84 @@ def anonimization(data, threshold=0.95, add_noise=True):
             data_noisy += noise
         return data_noisy
     
-    # Normalização dos dados (opcional, mas melhora estabilidade)
+    # Data normalization (optional, but improves stability)
     scaler = MinMaxScaler()
     data_scaled = scaler.fit_transform(data)
     
-    # Calcular a média de cada coluna
+    # Calculate mean of each column
     mean = np.mean(data_scaled, axis=0)
     
-    # Centralizar dados
+    # Center data
     data_centered = data_scaled - mean
     
-    # Aplicar PCA para eficiência - usar número fixo de componentes ao invés de threshold
-    # Corrigindo o problema: não pode usar threshold com svd_solver='randomized'
-    n_components = max(1, min(min_dim - 1, int(min_dim * 0.8)))  # 80% dos componentes ou no máximo min_dim-1
-    print(f"Usando {n_components} componentes PCA de {min_dim} possíveis")
+    # Apply PCA for efficiency - use a fixed number of components instead of threshold
+    # Fixing the issue: can't use threshold with svd_solver='randomized'
+    n_components = max(1, min(min_dim - 1, int(min_dim * 0.8)))  # 80% of components or at most min_dim-1
+    print(f"Using {n_components} PCA components out of {min_dim} possible")
     
     pca = PCA(n_components=n_components, svd_solver='randomized' if min_dim > 10 else 'full')
     data_transformed = pca.fit_transform(data_centered)
     
-    # Inovação: Rotação pseudoaleatória dos componentes principais
-    # Usa uma matriz de rotação com propriedades de preservação de distância
+    # Innovation: Pseudorandom rotation of principal components
+    # Uses a rotation matrix with distance preservation properties
     n_components = data_transformed.shape[1]
     
-    # Gerar matriz de rotação ortogonal aleatória via método QR
+    # Generate random orthogonal rotation matrix via QR method
     random_matrix = np.random.randn(n_components, n_components)
     q, r = np.linalg.qr(random_matrix)
     
-    # Garantir que a matriz tenha determinante positivo (preserva orientação)
+    # Ensure matrix has positive determinant (preserves orientation)
     if np.linalg.det(q) < 0:
         q[:, 0] = -q[:, 0]
     
-    # Aplicar rotação
+    # Apply rotation
     data_rotated = np.dot(data_transformed, q)
     
-    # Adicionar ruído diferencial adaptativo
+    # Add adaptive differential noise
     if add_noise:
-        # Inovação: Ruído diferencial com sensibilidade adaptativa
-        # Calcula escala de ruído baseada na distribuição dos dados
+        # Innovation: Differential noise with adaptive sensitivity
+        # Calculate noise scale based on data distribution
         noise_scale = np.std(data_rotated, axis=0) * 0.01
         noise = np.random.normal(0, noise_scale, size=data_rotated.shape)
         data_rotated += noise
     
-    # Retornar para espaço original usando componentes rotacionados
-    # Usa a matriz de componentes principais do PCA para reconstrução eficiente
+    # Return to original space using rotated components
+    # Uses PCA's principal components matrix for efficient reconstruction
     data_original_dimension = np.dot(data_rotated, pca.components_)
     
-    # Descentralizar
+    # Reverse centering
     data_original_dimension += mean
     
-    # Inverter escala
+    # Reverse scaling
     data_original_dimension = scaler.inverse_transform(data_original_dimension)
     
     end_time = time.time()
-    print(f"Tempo de anonimização: {end_time - start_time:.4f} segundos")
+    print(f"Anonymization time: {end_time - start_time:.4f} seconds")
     
     return data_original_dimension
 
 
 def find_clusters(X, k, random_state=42):
     """
-    Encontra clusters nos dados
+    Find clusters in the data
     
     Args:
-        X: Dados para clusterização
-        k: Número de clusters
-        random_state: Seed para reprodutibilidade
+        X: Data for clustering
+        k: Number of clusters
+        random_state: Seed for reproducibility
     
     Returns:
-        Rótulos dos clusters
+        Cluster labels
     """
-    # Tratamento para o caso em que k é maior que o número de amostras
+    # Ensure X is float64 to avoid type casting issues
+    X = X.astype(np.float64)
+    
+    # Handle case where k is greater than the number of samples
     n_samples = X.shape[0]
     k = min(k, n_samples)
     
-    # Usar inicialização kmeans++ para convergência mais rápida
-    # Ajustando o n_init para evitar warnings em versões recentes do scikit-learn
+    # Use kmeans++ initialization for faster convergence
+    # Adjusting n_init to avoid warnings in recent scikit-learn versions
     Kmean = KMeans(n_clusters=k, n_init='auto', random_state=random_state, init='k-means++')
     Kmean.fit(X)
     return Kmean.labels_
@@ -116,63 +122,66 @@ def find_clusters(X, k, random_state=42):
 
 def anonimization_clustering(data, y, k, method='efficient'):
     """
-    Anonimização por clusterização
+    Anonymization by clustering
     
     Args:
-        data: Dados para anonimização
-        y: Rótulos
-        k: Número de clusters
-        method: Método de anonimização ('original' ou 'efficient')
+        data: Data for anonymization
+        y: Labels
+        k: Number of clusters
+        method: Anonymization method ('original' or 'efficient')
     
     Returns:
-        Dados anonimizados e rótulos correspondentes
+        Anonymized data and corresponding labels
     """
     start_time = time.time()
     
-    # Verificar se temos dados suficientes
+    # Convert data to float64
+    data = data.astype(np.float64)
+    
+    # Check if we have enough data
     if data.shape[0] < 3:
-        print("Dataset muito pequeno para clustering, retornando dados originais")
+        print("Dataset too small for clustering, returning original data")
         return data, y
     
-    # Ajustar k se necessário
+    # Adjust k if necessary
     k = min(k, data.shape[0] // 2)
-    k = max(k, 1)  # Pelo menos 1 cluster
+    k = max(k, 1)  # At least 1 cluster
     
-    # Inovação: Clusterização estratificada baseada nas classes
-    # Isso garante melhor preservação da relação entre features e targets
+    # Innovation: Stratified clustering based on classes
+    # This ensures better preservation of the relationship between features and targets
     unique_classes = np.unique(y)
     
-    # Se temos muitas classes, podemos agrupar por faixas
+    # If we have many classes, we can group by ranges
     if len(unique_classes) > 5:
-        print("Muitas classes, agrupando por faixas...")
-        # Classificação convencional
+        print("Many classes, grouping by ranges...")
+        # Conventional classification
         clusters = find_clusters(data, k)
     else:
-        # Clusterização estratificada por classe
-        print(f"Usando clusterização estratificada para {len(unique_classes)} classes")
+        # Stratified clustering by class
+        print(f"Using stratified clustering for {len(unique_classes)} classes")
         clusters = np.zeros(len(data), dtype=np.int32)
         cluster_offset = 0
         
         for class_val in unique_classes:
-            # Índices para esta classe
+            # Indices for this class
             class_indices = np.where(y == class_val)[0]
             
             if len(class_indices) < 3:
-                # Se não houver amostras suficientes, usar todos como um cluster
+                # If not enough samples, use all as one cluster
                 clusters[class_indices] = cluster_offset
                 cluster_offset += 1
             else:
-                # Clusterizar dentro da classe
+                # Cluster within the class
                 class_data = data[class_indices]
-                n_clusters = max(1, min(k, len(class_indices) // 50))  # Ajuste dinâmico
-                n_clusters = max(1, min(n_clusters, len(class_indices) // 2))  # Pelo menos 2 samples por cluster
+                n_clusters = max(1, min(k, len(class_indices) // 50))  # Dynamic adjustment
+                n_clusters = max(1, min(n_clusters, len(class_indices) // 2))  # At least 2 samples per cluster
                 
                 class_clusters = find_clusters(class_data, n_clusters)
-                # Atribuir cluster IDs com offset
+                # Assign cluster IDs with offset
                 clusters[class_indices] = class_clusters + cluster_offset
                 cluster_offset += n_clusters
     
-    # Organizar índices por cluster
+    # Organize indices by cluster
     indices = {}
     for i in range(len(clusters)):
         if clusters[i] not in indices.keys():
@@ -181,24 +190,24 @@ def anonimization_clustering(data, y, k, method='efficient'):
     
     data_anonymized, y_in_new_order = None, None
     
-    # Inovação: Paralelização por blocos para clusters grandes
+    # Innovation: Parallelization by blocks for large clusters
     large_clusters = []
     small_clusters = []
     
-    # Separar clusters grandes e pequenos
+    # Separate large and small clusters
     for k_id in indices.keys():
-        if len(indices[k_id]) > 1000:  # Limiar arbitrário, ajuste conforme necessário
+        if len(indices[k_id]) > 1000:  # Arbitrary threshold, adjust as needed
             large_clusters.append(k_id)
         else:
             small_clusters.append(k_id)
     
-    print(f"Processando {len(small_clusters)} clusters pequenos e {len(large_clusters)} clusters grandes")
+    print(f"Processing {len(small_clusters)} small clusters and {len(large_clusters)} large clusters")
     
-    # Processar clusters pequenos primeiro
+    # Process small clusters first
     for k_id in small_clusters:
         cluster_data = data[indices[k_id]]
         if cluster_data.shape[0] < 3:
-            # Clusters muito pequenos não passam por anonimização
+            # Very small clusters don't undergo anonymization
             anonymized_cluster = cluster_data
         else:
             anonymized_cluster = anonimization(cluster_data)
@@ -210,9 +219,9 @@ def anonimization_clustering(data, y, k, method='efficient'):
             data_anonymized = np.concatenate((data_anonymized, anonymized_cluster), axis=0)
             y_in_new_order = np.concatenate((y_in_new_order, y[indices[k_id]]), axis=0)
     
-    # Processar clusters grandes com otimização específica
+    # Process large clusters with specific optimization
     for k_id in large_clusters:
-        # Para clusters grandes, aplicar anonimização com configuração mais agressiva
+        # For large clusters, apply anonymization with more aggressive configuration
         cluster_data = data[indices[k_id]]
         anonymized_cluster = anonimize_in_batches(cluster_data, batch_size=500)
         
@@ -224,34 +233,37 @@ def anonimization_clustering(data, y, k, method='efficient'):
             y_in_new_order = np.concatenate((y_in_new_order, y[indices[k_id]]), axis=0)
     
     end_time = time.time()
-    print(f"Tempo total de anonimização por clustering: {end_time - start_time:.4f} segundos")
+    print(f"Total clustering anonymization time: {end_time - start_time:.4f} seconds")
     
     return data_anonymized, y_in_new_order
 
 
-# Função auxiliar para anonimização incremental (processamento por blocos para grandes conjuntos)
+# Helper function for incremental anonymization (batch processing for large datasets)
 def anonimize_in_batches(data, batch_size=10000):
     """
-    Anonimiza dados em lotes para conjuntos muito grandes
+    Anonymize data in batches for very large datasets
     
     Args:
-        data: Dados para anonimização
-        batch_size: Tamanho do lote
+        data: Data for anonymization
+        batch_size: Batch size
     
     Returns:
-        Dados anonimizados
+        Anonymized data
     """
+    # Ensure data is float64
+    data = data.astype(np.float64)
+    
     n_samples = data.shape[0]
     
     if n_samples <= batch_size:
         return anonimization(data)
     
-    # Processar em lotes
+    # Process in batches
     batches = []
     for start_idx in range(0, n_samples, batch_size):
         end_idx = min(start_idx + batch_size, n_samples)
         batch_data = data[start_idx:end_idx]
         batches.append(anonimization(batch_data))
     
-    # Concatenar resultados
+    # Concatenate results
     return np.concatenate(batches, axis=0)
