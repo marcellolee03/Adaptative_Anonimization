@@ -1,20 +1,37 @@
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier
+from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier, AdaBoostClassifier
+from sklearn.feature_selection import (SelectFromModel, SelectKBest, chi2,
+                                       f_classif, mutual_info_classif)
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
+from sklearn.tree import DecisionTreeClassifier
 
-from anonimization import feature_selection
 from file_utils import get_file
 from ml import cross_validate_k_fold
 
 
-# Function to get the results
-def get_result(model, X, y, model_name, n_clusters, feature_method, k, epsilon=1.0):
+# Function that select the technique of feature selection
+def feature_selection(X, y, method, k=None):
+    if method == 'chi2':
+        selector = SelectKBest(chi2, k= k)
+    elif method == 'extra_trees':
+        model = ExtraTreesClassifier(n_estimators=100)
+        model.fit(X, y)
+        selector = SelectFromModel(model, prefit=True)
+    else:
+        raise ValueError(f"Método de seleção de características não suportado: {method}")
+
+    X_new = selector.fit_transform(X,y)
+    selected_features_idx =  selector.get_support(indices=True)
+    return X_new, selected_features_idx
+
+# Function to  get the results
+def get_result(model, X, y, model_name, n_clusters, feature_method, k):
     bol = [True, False]
-    results_columns = ['model', 'anonymized_train', 'anonymized_test', 'accuracy', 'precision', 'recall', 'f1_score', 'training_time', 'inference_time']
+    results_columns = ['model', 'anonymized_train', 'anonymized_test', 'accuracy', 'precision', 'recall', 'f1_score']
     results = pd.DataFrame(columns=results_columns)
     selected_features_all = []
 
@@ -30,7 +47,7 @@ def get_result(model, X, y, model_name, n_clusters, feature_method, k, epsilon=1
                 'num_features': k,
                 'selected_features_idx': selected_features_idx.tolist()
             })
-            cross_val_results = cross_validate_k_fold(X_new, y, bol[i], bol[j], model, model_name, n_clusters, epsilon)
+            cross_val_results = cross_validate_k_fold(X_new, y, bol[i], bol[j], model, model_name, n_clusters)
             new_df = pd.DataFrame([[
                 model_name, 
                 bol[i], 
@@ -38,21 +55,18 @@ def get_result(model, X, y, model_name, n_clusters, feature_method, k, epsilon=1
                 cross_val_results[2], 
                 cross_val_results[3], 
                 cross_val_results[4], 
-                cross_val_results[5],
-                cross_val_results[6],  # training_time
-                cross_val_results[7]   # inference_time
+                cross_val_results[5]
             ]], columns=results_columns)
             results = pd.concat([results, new_df], ignore_index=True)
 
     return results, selected_features_all
 
-
-# Function where the experiment is made
-def experiment(X, y, feature_method, k, epsilon=1.0):
-    all_results = pd.DataFrame(columns=['model', 'anonymized_train', 'anonymized_test', 'accuracy', 'precision', 'recall', 'f1_score', 'training_time', 'inference_time', 'selected_features', 'feature_method', 'num_features', 'epsilon'])
+# Function where the experiment are maded
+def experiment(X, y, feature_method, k):
+    all_results = pd.DataFrame(columns=['model', 'anonymized_train', 'anonymized_test', 'accuracy', 'precision', 'recall', 'f1_score', 'selected_features', 'feature_method', 'num_features'])
     models = [
         (KNeighborsClassifier(n_neighbors=5), 'KNN'),
-        (AdaBoostClassifier(n_estimators=100), 'AdaBoost'),
+        # (DecisionTreeClassifier(), 'Decision Tree'),
         (RandomForestClassifier(n_estimators=100), 'Random Forest'),
         (GaussianNB(var_smoothing=1e-02), 'GaussianNB'),
         (MLPClassifier(
@@ -65,27 +79,20 @@ def experiment(X, y, feature_method, k, epsilon=1.0):
             max_iter=500,                  
             early_stopping=True,           
             validation_fraction=0.1
-        ), 'Multilayer Perceptron'),
-        (LogisticRegression(
-            C=1.0, 
-            max_iter=500, 
-            solver='lbfgs', 
-            multi_class='auto', 
-            class_weight='balanced',
-            random_state=42
-        ), 'Logistic Regression')
+        ), 'Mutilayer Perceptron'),
+        (AdaBoostClassifier(n_estimators=100, learning_rate=1.0), 'AdaBoost'),
+        (LogisticRegression(max_iter=1000, C=1.0, solver='lbfgs', multi_class='auto'), 'Logistic Regression')
     ]
 
     for model, model_name in models:
-        results, selected_features = get_result(model, X, y, model_name, 3, feature_method, k, epsilon)
-        # Find the best result for each scenario
-        best_results = find_best_results(results, selected_features, feature_method, k, epsilon)
+        results, selected_features = get_result(model, X, y, model_name, 3, feature_method, k)
+        # Find the best resutlt for which scenario
+        best_results = find_best_results(results, selected_features, feature_method, k)
         all_results = pd.concat([all_results, best_results], ignore_index=True)
 
     return all_results
 
-
-def find_best_results(results, selected_features, feature_method, k, epsilon):
+def find_best_results(results, selected_features, feature_method, k):
     scenarios = [(True, True), (True, False), (False, True), (False, False)]
     best_results = []
 
@@ -109,67 +116,52 @@ def find_best_results(results, selected_features, feature_method, k, epsilon):
                     best_result.loc['selected_features'] = selected_feature_info[0]['selected_features_idx']
                 best_result.loc['feature_method'] = feature_method
                 best_result.loc['num_features'] = k
-                best_result.loc['epsilon'] = epsilon
                 best_results.append(best_result)
 
     return pd.DataFrame(best_results)
 
-
 def Chi2(X, y):
     all_best_results = []
-    epsilon_values = [0.1, 0.5, 1.0, 2.0, 5.0]  # Diferentes níveis de privacidade diferencial
 
-    for epsilon in epsilon_values:
-        # for i in range(2, 10, 1):
-        #     best_results = experiment(X, y, 'chi2', i, epsilon)
-        #     all_best_results.append(best_results)
 
-        for i in range(2, 48, 5):
-            best_results = experiment(X, y, 'chi2', i, epsilon)
-            all_best_results.append(best_results)
+    for i in range(2, 80, 5):
+        best_results = experiment(X, y, 'chi2', i)
+        all_best_results.append(best_results)
 
     final_best_results_df = pd.concat(all_best_results, ignore_index=True)
-    final_best_results_df.to_csv('results/best_results_chi2_dp.csv', index=False)
+    final_best_results_df.to_csv('results/best_results_chi2.csv', index=False)
     print(final_best_results_df.head())
 
 
-def ExtraTrees(X, y):
+
+def ExtraTree(X, y):
     all_best_results = []
-    epsilon_values = [0.1, 0.5, 1.0, 2.0, 5.0]  # Diferentes níveis de privacidade diferencial
 
-    for epsilon in epsilon_values:
-        for i in range(2, 48, 5):
-            best_results = experiment(X, y, 'extra_trees', i, epsilon)
-            all_best_results.append(best_results)
+    for i in range(2, 80, 5):
+        best_results = experiment(X, y, 'extra_trees', i)
+        all_best_results.append(best_results)
 
     final_best_results_df = pd.concat(all_best_results, ignore_index=True)
-    final_best_results_df.to_csv('results/best_results_extra_trees_dp.csv', index=False)
-    print(final_best_results_df.head())
+    final_best_results_df.to_csv('results/best_results_extra_trees.csv', index=False)
 
 
 def main():
-    # Set the random seed 
+    # Set the renadom seed 
     np.random.seed(7) 
 
-    # Read the dataset
+    # read the dataset
     dataset = get_file()
-    # print(len(dataset.columns))
-    # print(dataset.columns)
+    dataset.head(5)
+    print(f"Total de colunas no dataset: {len(dataset.columns)}")
 
     # Extract feature and label
-    if 'Label' in dataset.columns:
-        y = np.array(dataset['Label'])
-        dataset = dataset.drop('Label', axis=1)
-        X = np.array(dataset)
-        
-        # Choose the feature selection method
-        # print("Executando Chi2...")
-        # Chi2(X, y)
-        
-        print("Executando ExtraTrees...")
-        ExtraTrees(X, y)
-    else:
-        print("Erro: Coluna 'Label' não encontrada no dataset.")
+    y = np.array(dataset['Label'])
+    del dataset['Label']
+    X = np.array(dataset)
+
+    # Execute somente Chi2 e ExtraTree
+    Chi2(X, y)
+    ExtraTree(X, y)
 
 
 if __name__ == "__main__":
