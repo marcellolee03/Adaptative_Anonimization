@@ -7,7 +7,23 @@ from sklearn.preprocessing import StandardScaler
 from anonimization import anonimization_clustering
 
 
-def cross_validate_k_fold(X, y, anon_training, anon_test, model, model_name, n_clusters):
+def cross_validate_k_fold(X, y, anon_training, anon_test, model, model_name, n_clusters, noise_factor=0.01):
+    """
+    Perform cross-validation with optional anonymization
+    
+    Args:
+        X: Feature matrix
+        y: Target vector
+        anon_training: Whether to anonymize training data
+        anon_test: Whether to anonymize test data
+        model: Model to evaluate
+        model_name: Name of the model
+        n_clusters: Number of clusters for anonymization
+        noise_factor: Factor to control noise magnitude (default: 0.01)
+    
+    Returns:
+        Cross-validation results
+    """
     kf = StratifiedKFold(n_splits=3)
     scaler = StandardScaler()
 
@@ -18,12 +34,11 @@ def cross_validate_k_fold(X, y, anon_training, anon_test, model, model_name, n_c
         y_train, y_test = y[train_index], y[test_index]
 
         if anon_training:
-            X_train, y_train = anonimization_clustering(X_train, y_train, n_clusters)
+            X_train, y_train = anonimization_clustering(X_train, y_train, n_clusters, noise_factor=noise_factor)
 
         if anon_test:
-            X_test, y_test = anonimization_clustering(X_test, y_test, n_clusters)
+            X_test, y_test = anonimization_clustering(X_test, y_test, n_clusters, noise_factor=noise_factor)
 
-        # Normalizar os dados
         X_train = scaler.fit_transform(X_train)
         X_test = scaler.transform(X_test)
             
@@ -42,7 +57,7 @@ def cross_validate_k_fold(X, y, anon_training, anon_test, model, model_name, n_c
         'f1_score': np.array(f1)
     }
 
-    print(model_name, anon_training, anon_test)
+    print(f"{model_name}, anon_train={anon_training}, anon_test={anon_test}, noise={noise_factor}")
     for k in results.keys():
         print(f"{k} ---> mean: {results[k].mean():.4f}, std: {results[k].std():.4f}")
 
